@@ -7,12 +7,12 @@
 
 #define MTLOG(text) \
 { \
-    mtlog(text, __LINE__, __func__, __DATE__, __TIME__, __FILE__); \
+    mtlog(text, __LINE__, __func__, __FILE__); \
 }
 
-void mtlog(QString logText, int lineNumber, std::string functionName, std::string date, std::string time, std::string fileName)
+void mtlog(QString logText, int lineNumber, std::string functionName, std::string fileName)
 {
-    QString txt = QString("[%1 %2] %3:%4 (%5)\t%6\n").arg(QString(date.c_str())).arg(QString(time.c_str()))
+    QString txt = QString("[%1] %2:%3 (%4)\t%5\n").arg(QDateTime::currentDateTime().toString())
             .arg(QString(fileName.c_str())).arg(lineNumber).arg(QString(functionName.c_str())).arg(logText);
 
     QString dirname = "/home/administrator/Desktop/MT500/logs/";

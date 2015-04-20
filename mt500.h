@@ -5,6 +5,7 @@
 #include <QFile>
 #include <QTextBrowser>
 #include <QTextStream>
+#include <QVariant>
 #include <QTimer>
 #include <Q3Socket>
 #include <Q3SocketDevice>
@@ -16,7 +17,9 @@
 #include <QtAddOnSerialPort/serialportinfo.h>
 #include <QThread>
 #include <QTcpSocket>
-#include <QProcess>
+#include <QTcpServer>
+
+#include "databasemodule.h"
 
 QT_USE_NAMESPACE_SERIALPORT
 
@@ -38,7 +41,6 @@ public:
 
 protected:
     void changeEvent(QEvent *e);
-    int countFile(QString);
     void getIPs();
     QByteArray encode(QString message);
     void sendRaw(QString);
@@ -49,51 +51,40 @@ protected:
     void setupRS232(QString, QString);
     QString decode(QByteArray);
     void testConnection();
-    void checkResetFIPS();
     void sendRawStrtoIflows(QString);
-    void sendFips();
-    QStringList sortFips();
     bool inFilter(int node, int gid);
-    QStringList fipsDiff (QString, QString); 
-    void sendRecord(QString);
 
 public slots:
-    void getData();
-    void sendHB();
-    void getFips();
-    void readData();
-    void ipError(int);
-    void resetPorts();
-    void clrBuf();
-
-private slots:
+    void slot_sendHB();
+    void slot_readData();
+    void slot_ipError(int);
+    void slot_resetPorts();
+    void slot_clrBuf();
     void on_addButton_clicked();
     void on_delButton_clicked();
     void on_testButton_clicked();
     void on_clrButton_clicked();
-
     void on_reconfigureButton_clicked();
-
     void on_runModeComboBox_currentIndexChanged(int index);
+    void slot_dataReceived();
 
 private:
     Ui::MT500 *ui;
-    int initialCount, heartbeatInterval, msgCount, fipsInterval, byteCount,boxGID,recordCnt, byteCnt, ipRetries, socketCtr, cloudCnt;
-    qint32 outBaud, inBaud;
-    QTimer *pollTimer, *hbTimer, *fipsTimer, *resetTimer, *validMsgTimer;
-    QTcpSocket *sockets[20], *test;
-    ipStruct ipArray[6];
-    QStringList getFiles;
-    QString fipsNo, ipConfig, fipsDir, COMin, COMout, currentIP, progVer, HWaddr;
-    QHash<QString, QMap<QDateTime, QString> > fipsCount;
-    SerialPort *inPort, *outPort;
-    QByteArray msg, ba;
-    bool initial, log;
-    QHash<int, QDateTime> fipsFilter; //GID, Last Record
-    //QHash<int, QString> sendList; //Index, Time:Raw Data
-    QStringList sendList, copyParms;
-    QHash<QString, QString> filterList; //Node, GID
-    QProcess *copyProc;
+    int m_initialCount, m_heartbeatInterval, m_msgCount, m_fipsInterval, m_byteCount,m_boxGID,m_recordCnt, m_socketCtr, m_cloudCnt;
+    qint32 m_outBaud, m_inBaud;
+    QTimer *m_hbTimer, *m_resetTimer, *m_validMsgTimer;
+    QTcpSocket *m_sockets[20];
+    ipStruct m_ipArray[6];
+    QStringList m_getFiles;
+    QString m_fipsNo, m_ipConfig, m_fipsDir, m_COMin, m_COMout, m_currentIP, m_progVer, m_HWaddr;
+    SerialPort *m_inPort, *m_outPort;
+    QByteArray m_msg, m_ba;
+    bool m_initial, m_log;
+    QHash<int, QDateTime> m_fipsFilter; //GID, Last Record
+    QHash<int, QString> m_sendList; //Index, Time:Raw Data
+    QHash<QString, QString> m_filterList; //Node, GID
+    DatabaseModule * m_db;
+    QTcpServer * m_server;
 };
 
 class SleeperThread : public QThread
