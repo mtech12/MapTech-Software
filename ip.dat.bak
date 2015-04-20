@@ -1,0 +1,12 @@
+File format:
+
+[IP ADDRESS]    [PORT]  [TYPE OF DATA]
+
+[IP ADDRESS] --- Destination IP in the form of xxx.xxx.xxx.xxx
+[PORT] --- Destination port
+[TYPE OF DATA] --- Options: RAW or PROC or BASE
+
+------DO NOT MODIFY ANYTHING ABOVE THIS LINE---------
+72.66.190.194	3155	BASE
+166.61.206.92	3154	BASE
+166.61.228.37	3154	BASE
