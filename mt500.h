@@ -16,6 +16,7 @@
 #include <QtAddOnSerialPort/serialportinfo.h>
 #include <QThread>
 #include <QTcpSocket>
+#include <QProcess>
 
 QT_USE_NAMESPACE_SERIALPORT
 
@@ -53,6 +54,8 @@ protected:
     void sendFips();
     QStringList sortFips();
     bool inFilter(int node, int gid);
+    QStringList fipsDiff (QString, QString); 
+    void sendRecord(QString);
 
 public slots:
     void getData();
@@ -87,8 +90,10 @@ private:
     QByteArray msg, ba;
     bool initial, log;
     QHash<int, QDateTime> fipsFilter; //GID, Last Record
-    QHash<int, QString> sendList; //Index, Time:Raw Data
+    //QHash<int, QString> sendList; //Index, Time:Raw Data
+    QStringList sendList, copyParms;
     QHash<QString, QString> filterList; //Node, GID
+    QProcess *copyProc;
 };
 
 class SleeperThread : public QThread

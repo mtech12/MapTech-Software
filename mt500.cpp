@@ -10,7 +10,7 @@ MT500::MT500(QWidget *parent) :
     if(log) MTLOG("MT500 Object Constructed");
     ui->setupUi(this);
     //Set program version here /////////
-    progVer = "V.012";
+    progVer = "V.013";
     ////////////////////////////////////
     ui->versionLbl->setText("Program Version: " + progVer);
     ui->rxLabel->setText("Messages Transmitted: 0");
@@ -33,6 +33,23 @@ MT500::MT500(QWidget *parent) :
     msgCount = 0; //Does not include heartbeat messages
     getIPs();
     getFipsCounts();
+
+    //
+    // Initially we copy the current files to the previous file
+    // directory so that we have something to compare to the first
+    // time we sync the FIPS files
+    //
+    qDebug() << "Starting to copy...";
+    //copyProc = new QProcess(this);
+    QString oldDir = fipsDir + "old/";
+    QString cmd = QString("cp %1*.dat %2").arg(fipsDir).arg(oldDir);
+    system(cmd.toStdString().c_str());
+    //copyParms << QString("%1*.dat").arg(fipsDir) << oldDir;
+    //copyProc->start("cp", copyParms);
+    //copyProc->waitForFinished(-1);
+    //copyProc->terminate ();
+    qDebug() << "Done copying...";
+
     for(int i = 0; i < 20; i++) {
         sockets[i] = new QTcpSocket(this);
     }
@@ -326,90 +343,247 @@ void MT500::sendHB() {
 }
 
 void MT500::getFips() {
-    int listCounter = 0;
-    //fipsFilter.clear();
-    if(log) MTLOG("Getting fips files...");
+    qDebug() << "Getting FIPS....";
     if(getFiles.size() > 0) {
-        for(int i = 0; i < getFiles.size(); i++) {
+        for(int i = 0; i < getFiles.size(); i++) { //Loop over each file
             QString line;
-            QString filename = fipsDir+getFiles.at(i).trimmed()+".dat";
-            QFile file(filename);
-            if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-                QMap<QDateTime, QString> tempSorter;
-				MTLOG(QString("Reading file %1").arg(filename));
-                QTextStream in(&file);
-                while (!in.atEnd()) {
-                    line = in.readLine();
-                    QStringList fields2 = line.split(",");
-                    QString dateTime = fields2.at(0);
-                    QDateTime newDate = QDateTime::fromString(dateTime.trimmed(), "MM/dd/yyyy HH:mm:ss");
-					tempSorter.insertMulti(newDate, line);
-				}
-				file.close();
-				//Loop over sorted file and check for shit
-				QMap<QDateTime, QString>::iterator it;
-				for(it = tempSorter.begin(); it != tempSorter.end(); ++it) {
-				    QStringList recordFields = it.value().split(",");
-					QDateTime dateTime = it.key();
-					QString record = it.value();
-                                        QMap<QDateTime, QString> recordInfo = fipsCount.value(getFiles.at(i));
-					QMap<QDateTime, QString>::iterator ri = recordInfo.begin();
-					QDateTime oldTime = ri.key();
-					QString oldRecord = ri.value();
-					if((dateTime >= oldTime) && (record != oldRecord)) {   // If new record
-                        if(log) MTLOG(QString("New record: %1").arg(record));
-                        QMap<QDateTime, QString> tempMap;
-			tempMap.insert(dateTime, record);
-                        fipsCount.insert(getFiles.at(i).trimmed(), tempMap);                    
-                        int gid = recordFields.at(1).trimmed().toInt();
-                        int node = recordFields.at(4).trimmed().toInt();
-                        if(inFilter(node, gid)) {
-                            if(log) MTLOG(QString("Record passed: %1 (%2)").arg(record).arg(getFiles.at(i).trimmed()));
-                            ui->CloudBrowser->append("<font color=\"green\">" + record + "</font>");
-                            cloudCnt++;
-                            if(cloudCnt > 500) {
-                                ui->CloudBrowser->clear();
-                                cloudCnt = 0;
-                            }
-                            if(!fipsFilter.contains(gid)) {
-                                fipsFilter.insert(gid, dateTime); //Update fips filter
-                                sendList.insert(listCounter, dateTime.toString()+"$"+recordFields.at(3).trimmed());
-                                listCounter++;
-                            }
-                            else {
-                                QDateTime prevTime = fipsFilter.value(gid); //Get previous time value
-                                if(dateTime > prevTime.addSecs(60)) { //Only concerned about it if enough time has passed
-                                    fipsFilter.insert(gid, dateTime); //Update fips filter
-                                    sendList.insert(listCounter, dateTime.toString()+"$"+recordFields.at(3).trimmed());//add to pass list
-                                    listCounter++;
-                                }
-                            }
-                        }
-						else {
-							if(log) MTLOG(QString("Record NOT passed: %1 (%2)").arg(record).arg(getFiles.at(i).trimmed()));
-							ui->CloudBrowser->append("<font color=\"red\">" + record + "</font>");
-							cloudCnt++;
-							if(cloudCnt > 500) {
-								ui->CloudBrowser->clear();
-								cloudCnt = 0;
-							}
-						}
-					}
-				}
-			}
-			else if(log) MTLOG(QString("Error opening file %1").arg(filename));
-		}
-		sendFips();//Process and send all data in send list
-	}
+            QString newFile = fipsDir+getFiles.at(i).trimmed()+".dat";
+            QString oldFile = fipsDir+"old/"+getFiles.at(i).trimmed()+".dat";
+            if (log) {
+                MTLOG (QString("Reading New File: %1").arg(newFile));
+                MTLOG (QString("Old File: %1").arg(oldFile));
+            }
+            //
+            // fipsDiff returns a QStringList sorted by time containing any records 
+            // that were not in the previously synced file.
+            // 
+            qDebug() << "Getting new records...";
+            QStringList newRecords = fipsDiff (newFile, oldFile);
+            qDebug() << "Done getting new records...";
+
+            //
+            // We should now have a list of new records
+            // Loop through them -- check pass list and if
+            // appropriate pass it 
+            //
+            qDebug() << "New Records Size: " << newRecords.size ();
+            for(int i = 0; i < newRecords.size (); i++) {
+                QString record = newRecords.at (i).trimmed (); 
+                QStringList recordFields = record.trimmed ().split (",");
+                qDebug() << "Record Fields Size: " << recordFields.size ();
+                int gid = recordFields.at (1).toInt ();
+                int node = recordFields.at (4).toInt ();
+                qDebug() << "GID: " << gid;
+                qDebug() << "Node: " << node;
+                bool filter = inFilter (node, gid);
+                qDebug() << "Filter: " << filter;
+                if(filter == true) {
+                    if(log) MTLOG(QString("Record passed: %1").arg(record));
+                    ui->CloudBrowser->append("<font color=\"green\">" + record + "</font>");
+                    cloudCnt++;
+                    if(cloudCnt > 500) {
+                        ui->CloudBrowser->clear();
+                        cloudCnt = 0;
+                    }
+                    //
+                    // The send list is a QStringList containing
+                    // raw data bytes, sorted by time
+                    //
+                    sendList.append(recordFields.at(3));
+                    sendRecord(record);
+                }
+                else {
+                    qDebug() << "Record Not Passed: " << record;
+                    //if(log) MTLOG(QString("Record NOT passed: %1 (%2)").arg(record).arg(getFiles.at(i).trimmed()));
+                    qDebug() << "Appending to cloud browser";
+                    ui->CloudBrowser->append("<font color=\"red\">" + record + "</font>");
+                    qDebug() << "Incrementing cloud count";
+                    cloudCnt++;
+                    if(cloudCnt > 500) {
+                        ui->CloudBrowser->clear();
+                        cloudCnt = 0;
+                    }
+                }
+            }
+        }
+    }
+
+    //
+    // Copy the current files to the previous file directory
+    // so we can keep track of
+    qDebug() << "Starting to copy...";
+    copyProc->start("cp", copyParms);
+    copyProc->waitForFinished(-1);
+    copyProc->terminate ();
+    qDebug() << "Done copying...";
+
+    sendFips ();
+    qDebug() << "Done getting FIPS....";
+}
+
+QStringList MT500::fipsDiff (QString newFile, QString oldFile) 
+{
+    QStringList newRecords;
+    //QMap <QDateTime, QString> sortedRecords;
+
+    qDebug() << "Diffing files....";
+    // Read in the entire contents of the old file
+    QStringList contents;
+    QFile file1 (oldFile);
+    qDebug() << "Reading " << oldFile;
+    if (file1.open (QIODevice::ReadOnly) == true) {
+        QTextStream in (&file1);
+        while(!in.atEnd()) contents << in.readLine ().trimmed ();
+        file1.close ();
+    }
+    qDebug() << "Done reading " << oldFile;
+    
+    //QStringList ret;
+    qDebug() << "Reading " << newFile;
+    QFile file2 (newFile);
+    if (file2.open (QIODevice::ReadOnly) == true) {
+        QTextStream in (&file2);
+        while (!in.atEnd()) {
+            QString line = in.readLine();
+            //
+            // Search old file for record if its not
+            // there we're assuming its new
+            //
+            if(contents.contains(line.trimmed ()) == false) {
+                // Put new records in a map for sorting...QMaps are sored automatically by key
+                // so we make the key the time and we get a time sorted map....yay!
+                //QStringList toks = line.split (",");
+                //QDateTime recordTime = QDateTime::fromString (toks[0].trimmed (), "MM/dd/yyyy hh:mm:ss");
+                //sortedRecords.insert (recordTime, line.trimmed ());
+                qDebug() << "Adding " << line.trimmed () << " to new records...";
+                newRecords << line.trimmed ();
+            }
+        }
+        file2.close ();
+    }
+    qDebug() << "Done reading " << newFile;
+   
+
+    //
+    // Regurgitate the sorted map and place all
+    // record strings (values) into a QStringList
+    // to return
+    //
+    /*QMap<QDateTime, QString>::iterator it;
+    for(it = sortedRecords.begin (); it != sortedRecords.end (); ++it) {
+        newRecords.append (it.value ());
+    }
+    newRecords.removeDuplicates ();
+
+    //
+    // This section gets rid of all repeats due to repeaters
+    // ie. If we get 3 of the same record 1 sec apart this should
+    // eliminate all but 1
+    // 
+    QHash<int, QDateTime> repeaterFilter;
+    QStringList finalPass;
+    for(int i = 0; i < newRecords.size(); i++) {
+        QStringList toks = newRecords.at(i).trimmed().split(",");
+        int gid = toks.at(1).toInt ();
+        QDateTime recordTime = QDateTime::fromString (toks.at(0).trimmed(), "MM/dd/yyyy hh:mm:ss");
+        if(repeaterFilter.contains (gid) == false) { // No records from this gid
+            finalPass.append (newRecords.at (i).trimmed ());
+            repeaterFilter.insert (gid, recordTime);
+        }
+        else { // We do have records for this gid we need to make a time comparison and see if we want them
+            QDateTime prev = repeaterFilter.value (gid); // Timestamp for prev record
+            if(recordTime >= prev.addSecs (60)) { // If at least 1 min has passed then we go ahead pass it through
+                repeaterFilter.insert (gid, recordTime);
+                finalPass.append (newRecords.at (i).trimmed ());
+            }
+        }
+    }*/
+    //QStringList toks = newFile.split("/");
+    //QString file = toks.at( toks.size() - 1);
+    //toks = file.split(".");
+    //QString cmd = QString("diff %1 %2 | sed -n 's/^> \(.*\)/\1/p' > diff_%3.txt").arg(oldFile).arg(newFile).arg(toks.at(0).trimmed());
+    //system(cmd.toStdString().c_str());
+    //QStringList parms;
+    //QString grep = "\'s\/^> \\(.*\\)\/\\1\/p'";
+    //if(log) MTLOG(QString("Grep: %1").arg(grep));
+    //parms << oldFile << newFile; // << "|" << "sed" << "-n" << grep;
+    /*QProcess p;
+    p.setProcessChannelMode (QProcess::MergedChannels);
+    p.start("diff", parms);
+    p.waitForFinished (-1);
+    QString out = p.readAllStandardOutput ();
+    QStringList toks = out.split("\n");
+    QStringList ret;
+    for(int i = 0; i < toks.size (); i++) {
+        MTLOG(toks[i]);
+        if(toks[i].trimmed().contains ("<") == true) {
+            ret << toks[i].remove("<").trimmed();
+        }
+    }*/
+
+    /*if(newRecords.size() > 0) {
+        for(int i = 0; i < newRecords.size(); i++) MTLOG(ret[i]);
+    }*/
+
+    /*QFile diff ("diff.txt");
+    if (diff.open (QIODevice::ReadOnly) == true) {
+        QTextStream in (&diff);
+        while (!in.atEnd()) {
+            QString line = in.readLine();
+            if(log) MTLOG (QString("\tAppending Record: %1").arg(line));
+            newRecords.append (line.trimmed ());
+        }
+    }*/
+    qDebug() << "Done diffing files.";
+    return newRecords;
+}
+
+void MT500::sendRecord(QString line)
+{
+    qDebug() << "Sending Record to Database";
+
+    QByteArray bytesToSend;
+    QStringList fields;
+    QString rawStr;
+    QString msg;
+
+    if(line.contains(','))
+    {
+       // qDebug() << "Line contains ','";
+        QString emess = line;
+        emess.replace(',',' ');
+        bytesToSend = encode(emess);
+            rawStr = QString(bytesToSend);
+            msg = "NOT FILTERED,"+line+",END\n";
+    }
+    else{
+      //   qDebug() << "Line contains ' '";
+        fields = line.split(" ");
+        QString ts = fields.at(2).trimmed()+" "+fields.at(3).trimmed();
+        QString gid = fields.at(1).trimmed();
+        QString data = fields.at(4).trimmed();
+        bytesToSend = encode(line);
+        rawStr = QString(bytesToSend);
+        msg = "NOT FILTERED,"+ts+","+gid+","+data+","+rawStr+","+QString::number(boxGID)+",END\n";
+    }
+
+    QTcpSocket *send= new QTcpSocket;
+    send->connectToHost(QHostAddress("72.66.190.194"), 3154);
+    if(send->waitForConnected(1000)) {
+        send->write(msg);
+        send->disconnectFromHost();
+        qDebug() << "Sent Record";
+    }
+    qDebug() << "Function End";
 }
 
 void MT500::sendFips()
 {
     QByteArray bytesToSend;
     bool emory;
-    QStringList sorted = sortFips();
-    for(int i = 0; i < sorted.size(); i++) {
-        QString raw = sorted.at(i);
+    //QStringList sorted = sortFips();
+    for(int i = 0; i < sendList.size(); i++) {
+        QString raw = sendList.at(i);
         QString temp = raw;
         QString byte1 = raw.remove(2,10);
         raw = temp;
@@ -443,11 +617,12 @@ void MT500::sendFips()
         }
         sendIFLOWS(bytesToSend);
     }
+    sendList. clear ();
 }
 
 QStringList MT500::sortFips() //Sorts fips records by time before pushing to IFLOWS
 {
-    QString raw = "adfd";
+    /*QString raw = "adfd";
     int key = 999;
     QStringList sorted;
     QDateTime oldest = QDateTime::currentDateTime().addMonths(1);
@@ -475,7 +650,7 @@ QStringList MT500::sortFips() //Sorts fips records by time before pushing to IFL
         oldest = QDateTime::currentDateTime().addMonths(1);
     }
     sendList.clear();
-    return sorted;
+    return sorted;*/
 }
 
 void MT500::getFipsCounts()
