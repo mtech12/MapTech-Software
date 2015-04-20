@@ -1,5 +1,0 @@
-This repo holds all of the stable software that we may use.
-It is important that development on this software is done in
-the corresponding repo and not here.  The master branch has
-nothing in it...each piece of software has their own branch
-that you should checkout to retrieve the software.
